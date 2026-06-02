@@ -13,6 +13,8 @@ Examples:
 
     python3 scripts/sihf_demo.py standings
 
+    python3 scripts/sihf_demo.py teams
+
     python3 scripts/sihf_demo.py gameoverview 20261105000421
 
     python3 scripts/sihf_demo.py gamedetails-export 20261105000421 \
@@ -45,8 +47,9 @@ from urllib.request import Request, urlopen
 API_BASE = "https://data.sihf.ch/statistic/api/cms"
 CACHE_BASE = "https://data.sihf.ch/Statistic/api/cms"
 EXPORT_BASE = f"{API_BASE}/export"
+NL_API_BASE = "https://www.nationalleague.ch/api"
 JSONP_CALLBACK = "externalStatisticsCallback"
-USER_AGENT = "SwissHockeyHubPoC/0.2"
+USER_AGENT = "SwissHockeyHubPoC/0.3"
 
 RESULTS_FILTER_ORDER = ["season", "phase", "date", "deferredstate", "team1", "team2"]
 STANDINGS_FILTER_ORDER = ["season", "phase", "contenttype"]
@@ -345,6 +348,17 @@ def make_parser() -> argparse.ArgumentParser:
     )
     add_common_language_argument(standings_parser)
 
+    teams_parser = subparsers.add_parser(
+        "teams",
+        help="List National League teams via the public National League API.",
+    )
+    teams_parser.add_argument(
+        "--format",
+        choices=("table", "json"),
+        default="table",
+        help="Output format for the extracted team list (default: table).",
+    )
+
     gameoverview_parser = subparsers.add_parser(
         "gameoverview",
         help="Fetch detailed information for a single game.",
@@ -433,6 +447,78 @@ def build_standings_filter_query(args: argparse.Namespace) -> str:
 
 
 
+def extract_teams_from_nl_api(payload: Any) -> list[dict[str, str]]:
+    if not isinstance(payload, list):
+        raise ValueError("Unexpected teams payload: expected a JSON array.")
+
+    teams: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+
+        team_id = str(item.get("teamId", "")).strip()
+        name = str(item.get("name", "")).strip()
+        acronym = str(item.get("shortName", "")).strip()
+        rank = str(item.get("rank", "")).strip()
+        website = str(item.get("website", "")).strip()
+
+        identity = team_id or name
+        if not identity or identity in seen:
+            continue
+
+        seen.add(identity)
+        teams.append(
+            {
+                "rank": rank,
+                "id": team_id,
+                "acronym": acronym,
+                "name": name,
+                "website": website,
+                "logoUrl": f"{NL_API_BASE}/teams/{team_id}/logo" if team_id else "",
+            }
+        )
+
+    def sort_key(team: dict[str, str]) -> tuple[int, str]:
+        rank_value = team.get("rank", "")
+        return (int(rank_value) if rank_value.isdigit() else 9999, team.get("name", ""))
+
+    teams.sort(key=sort_key)
+    return teams
+
+
+
+def print_team_table(teams: list[dict[str, str]]) -> None:
+    if not teams:
+        print("No teams found.")
+        return
+
+    columns = [
+        ("Rank", "rank"),
+        ("ID", "id"),
+        ("Acr", "acronym"),
+        ("Team", "name"),
+    ]
+    widths = {
+        key: max(len(title), *(len(team.get(key, "")) for team in teams))
+        for title, key in columns
+    }
+
+    header_line = "  ".join(title.ljust(widths[key]) for title, key in columns)
+    separator_line = "  ".join("-" * widths[key] for _, key in columns)
+
+    print(header_line)
+    print(separator_line)
+    for team in teams:
+        print(
+            "  ".join(
+                team.get(key, "").ljust(widths[key]) for _, key in columns
+            )
+        )
+
+
+
 def resolve_endpoint(args: argparse.Namespace) -> tuple[str, dict[str, str]]:
     if args.command == "results":
         return f"{CACHE_BASE}/cache300", {
@@ -458,6 +544,9 @@ def resolve_endpoint(args: argparse.Namespace) -> tuple[str, dict[str, str]]:
             "callback": JSONP_CALLBACK,
             "language": args.language,
         }
+
+    if args.command == "teams":
+        return f"{NL_API_BASE}/teams", {}
 
     if args.command == "gameoverview":
         return f"{API_BASE}/gameoverview", {
@@ -522,7 +611,25 @@ def main() -> int:
     if content_type:
         print(f"Content-Type: {content_type}")
     print()
-    pretty_print(content_type, body)
+
+    if args.command == "teams":
+        payload = try_parse_json(body, content_type)
+        if payload is None:
+            print("Could not parse the teams response as JSON.", file=sys.stderr)
+            return 1
+
+        try:
+            teams = extract_teams_from_nl_api(payload)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+
+        if args.format == "json":
+            print(json.dumps(teams, indent=2, ensure_ascii=False))
+        else:
+            print_team_table(teams)
+    else:
+        pretty_print(content_type, body)
 
     if args.output:
         print()
