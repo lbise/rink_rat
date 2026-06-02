@@ -15,6 +15,8 @@ Examples:
 
     python3 scripts/sihf_demo.py teams
 
+    python3 scripts/sihf_demo.py teamplayers 101151
+
     python3 scripts/sihf_demo.py gameoverview 20261105000421
 
     python3 scripts/sihf_demo.py gamedetails-export 20261105000421 \
@@ -359,6 +361,26 @@ def make_parser() -> argparse.ArgumentParser:
         help="Output format for the extracted team list (default: table).",
     )
 
+    teamplayers_parser = subparsers.add_parser(
+        "teamplayers",
+        help="List players for a National League team via the public National League API.",
+    )
+    teamplayers_parser.add_argument("team_id", help="National League team ID")
+    teamplayers_parser.add_argument(
+        "--season",
+        help="Optional season alias or display value, for example 2026 or 2025/2026.",
+    )
+    teamplayers_parser.add_argument(
+        "--phase",
+        help="Optional phase alias (advanced).",
+    )
+    teamplayers_parser.add_argument(
+        "--format",
+        choices=("table", "json"),
+        default="table",
+        help="Output format for the extracted player list (default: table).",
+    )
+
     gameoverview_parser = subparsers.add_parser(
         "gameoverview",
         help="Fetch detailed information for a single game.",
@@ -519,6 +541,87 @@ def print_team_table(teams: list[dict[str, str]]) -> None:
 
 
 
+def extract_team_players_from_nl_api(payload: Any) -> list[dict[str, str]]:
+    if not isinstance(payload, list):
+        raise ValueError("Unexpected team players payload: expected a JSON array.")
+
+    players: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    position_order = {"goalkeeper": 0, "defender": 1, "forwarder": 2}
+
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+
+        player_id = str(item.get("playerId", "")).strip()
+        first_name = str(item.get("firstName", "")).strip()
+        last_name = str(item.get("lastName", "")).strip()
+        number = str(item.get("number", "")).strip()
+        position = str(item.get("position", "")).strip()
+
+        identity = player_id or f"{first_name} {last_name}".strip()
+        if not identity or identity in seen:
+            continue
+
+        seen.add(identity)
+        players.append(
+            {
+                "id": player_id,
+                "number": number,
+                "firstName": first_name,
+                "lastName": last_name,
+                "name": " ".join(part for part in (first_name, last_name) if part),
+                "position": position,
+                "teamId": str(item.get("teamId", "")).strip(),
+                "teamName": str(item.get("teamName", "")).strip(),
+            }
+        )
+
+    def sort_key(player: dict[str, str]) -> tuple[int, int, str, str]:
+        number_value = player.get("number", "")
+        return (
+            position_order.get(player.get("position", ""), 99),
+            int(number_value) if number_value.isdigit() else 999,
+            player.get("lastName", ""),
+            player.get("firstName", ""),
+        )
+
+    players.sort(key=sort_key)
+    return players
+
+
+
+def print_team_players_table(players: list[dict[str, str]]) -> None:
+    if not players:
+        print("No players found.")
+        return
+
+    columns = [
+        ("No", "number"),
+        ("Pos", "position"),
+        ("Name", "name"),
+        ("ID", "id"),
+    ]
+    widths = {
+        key: max(len(title), *(len(player.get(key, "")) for player in players))
+        for title, key in columns
+    }
+
+    header_line = "  ".join(title.ljust(widths[key]) for title, key in columns)
+    separator_line = "  ".join("-" * widths[key] for _, key in columns)
+
+    print(header_line)
+    print(separator_line)
+    for player in players:
+        print(
+            "  ".join(
+                player.get(key, "").ljust(widths[key]) for _, key in columns
+            )
+        )
+
+
+
 def resolve_endpoint(args: argparse.Namespace) -> tuple[str, dict[str, str]]:
     if args.command == "results":
         return f"{CACHE_BASE}/cache300", {
@@ -547,6 +650,18 @@ def resolve_endpoint(args: argparse.Namespace) -> tuple[str, dict[str, str]]:
 
     if args.command == "teams":
         return f"{NL_API_BASE}/teams", {}
+
+    if args.command == "teamplayers":
+        params: dict[str, str] = {}
+
+        season = normalize_season_alias(args.season)
+        if season:
+            params["season"] = season
+
+        if args.phase:
+            params["phase"] = args.phase
+
+        return f"{NL_API_BASE}/player/team/{args.team_id}", params
 
     if args.command == "gameoverview":
         return f"{API_BASE}/gameoverview", {
@@ -612,22 +727,33 @@ def main() -> int:
         print(f"Content-Type: {content_type}")
     print()
 
-    if args.command == "teams":
+    if args.command in {"teams", "teamplayers"}:
         payload = try_parse_json(body, content_type)
         if payload is None:
-            print("Could not parse the teams response as JSON.", file=sys.stderr)
+            message = (
+                "Could not parse the teams response as JSON."
+                if args.command == "teams"
+                else "Could not parse the team players response as JSON."
+            )
+            print(message, file=sys.stderr)
             return 1
 
         try:
-            teams = extract_teams_from_nl_api(payload)
+            if args.command == "teams":
+                items = extract_teams_from_nl_api(payload)
+            else:
+                items = extract_team_players_from_nl_api(payload)
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
 
         if args.format == "json":
-            print(json.dumps(teams, indent=2, ensure_ascii=False))
+            print(json.dumps(items, indent=2, ensure_ascii=False))
         else:
-            print_team_table(teams)
+            if args.command == "teams":
+                print_team_table(items)
+            else:
+                print_team_players_table(items)
     else:
         pretty_print(content_type, body)
 
