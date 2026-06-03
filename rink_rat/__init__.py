@@ -1,0 +1,1 @@
+"""Rink Rat application package."""

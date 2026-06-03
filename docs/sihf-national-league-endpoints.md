@@ -326,13 +326,13 @@ Recommended first National League fixtures, pending rights review:
 
 | Fixture | Endpoint |
 | --- | --- |
-| `national_league_teams_2026_de_ch.json` | National League `/api/teams?season=2026&lang=de-CH` |
-| `national_league_games_2026_de_ch.json` | National League `/api/games?season=2026&lang=de-CH` |
-| `national_league_game_20261105000421_de_ch.json` | National League `/api/games/20261105000421?isApp=false&lang=de-CH` |
-| `national_league_team_103138_players_2026_de_ch.json` | National League `/api/player/team/103138?season=2026&lang=de-CH` |
-| `national_league_team_103138_games_de_ch.json` | National League `/api/games/team/103138?lang=de-CH` |
-| `national_league_playoffs_2026_de_ch.json` | National League `/api/games/playoffs?season=2026&lang=de-CH` |
-| `national_league_topscorer_2026_de_ch.json` | National League `/api/player/topscorer?season=2026&lang=de-CH` |
+| `teams_2026_de_ch.json` | National League `/api/teams?season=2026&lang=de-CH` |
+| `games_2026_de_ch.json` | National League `/api/games?season=2026&lang=de-CH` |
+| `game_20261105000421_de_ch.json` | National League `/api/games/20261105000421?isApp=false&lang=de-CH` |
+| `team_103138_players_2026_de_ch.json` | National League `/api/player/team/103138?season=2026&lang=de-CH` |
+| `team_103138_games_de_ch.json` | National League `/api/games/team/103138?lang=de-CH` |
+| `playoffs_2026_de_ch.json` | National League `/api/games/playoffs?season=2026&lang=de-CH` |
+| `topscorer_2026_de_ch.json` | National League `/api/player/topscorer?season=2026&lang=de-CH` |
 
 Optional secondary SIHF fixtures can be collected later if a specific field needs comparison or fallback coverage:
 
